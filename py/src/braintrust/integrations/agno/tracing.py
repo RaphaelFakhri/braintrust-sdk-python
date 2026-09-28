@@ -704,7 +704,12 @@ class _StreamState:
             if error is not None:
                 self.span.log(error=error)
             aggregated = _aggregate_agent_chunks(self.chunks)
-            self.span.log(output=aggregated, metrics=extract_streaming_metrics(aggregated, self.start))
+            metadata = _session_metadata(self.chunks[-1]) if self.chunks else {}
+            self.span.log(
+                output=aggregated,
+                metrics=extract_streaming_metrics(aggregated, self.start),
+                metadata=metadata,
+            )
         finally:
             self.chunks.clear()
             self.span.end()
@@ -836,7 +841,11 @@ def _agent_run_private_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: A
         },
     ) as span:
         result = wrapped(*args, **kwargs)
-        span.log(output=result, metrics=extract_metrics(result), metadata=_session_metadata(result))
+        span.log(
+            output=result,
+            metrics=extract_metrics(result),
+            metadata={**_session_metadata(run_response), **_session_metadata(result)},
+        )
         return result
 
 
@@ -857,7 +866,11 @@ async def _agent_arun_private_wrapper(wrapped: Any, instance: Any, args: Any, kw
         },
     ) as span:
         result = await wrapped(*args, **kwargs)
-        span.log(output=result, metrics=extract_metrics(result), metadata=_session_metadata(result))
+        span.log(
+            output=result,
+            metrics=extract_metrics(result),
+            metadata={**_session_metadata(run_response), **_session_metadata(result)},
+        )
         return result
 
 
@@ -891,7 +904,11 @@ def _agent_run_stream_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: An
                 all_chunks.append(chunk)
                 yield chunk
             aggregated = _aggregate_agent_chunks(all_chunks)
-            span.log(output=aggregated, metrics=extract_streaming_metrics(aggregated, start))
+            span.log(
+                output=aggregated,
+                metrics=extract_streaming_metrics(aggregated, start),
+                metadata=_session_metadata(run_response),
+            )
         except GeneratorExit:
             should_unset = False
             raise
@@ -936,7 +953,11 @@ def _agent_arun_stream_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: A
                 all_chunks.append(chunk)
                 yield chunk
             aggregated = _aggregate_agent_chunks(all_chunks)
-            span.log(output=aggregated, metrics=extract_streaming_metrics(aggregated, start))
+            span.log(
+                output=aggregated,
+                metrics=extract_streaming_metrics(aggregated, start),
+                metadata=_session_metadata(run_response),
+            )
         except GeneratorExit:
             should_unset = False
             raise
@@ -968,7 +989,11 @@ def _team_run_private_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: An
         },
     ) as span:
         result = wrapped(*args, **kwargs)
-        span.log(output=result, metrics=extract_metrics(result), metadata=_session_metadata(result))
+        span.log(
+            output=result,
+            metrics=extract_metrics(result),
+            metadata={**_session_metadata(run_response), **_session_metadata(result)},
+        )
         return result
 
 
@@ -989,7 +1014,11 @@ async def _team_arun_private_wrapper(wrapped: Any, instance: Any, args: Any, kwa
         },
     ) as span:
         result = await wrapped(*args, **kwargs)
-        span.log(output=result, metrics=extract_metrics(result), metadata=_session_metadata(result))
+        span.log(
+            output=result,
+            metrics=extract_metrics(result),
+            metadata={**_session_metadata(run_response), **_session_metadata(result)},
+        )
         return result
 
 
@@ -1023,7 +1052,11 @@ def _team_run_stream_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: Any
                 all_chunks.append(chunk)
                 yield chunk
             aggregated = _aggregate_agent_chunks(all_chunks)
-            span.log(output=aggregated, metrics=extract_streaming_metrics(aggregated, start))
+            span.log(
+                output=aggregated,
+                metrics=extract_streaming_metrics(aggregated, start),
+                metadata=_session_metadata(run_response),
+            )
         except GeneratorExit:
             should_unset = False
             raise
@@ -1068,7 +1101,11 @@ def _team_arun_stream_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: An
                 all_chunks.append(chunk)
                 yield chunk
             aggregated = _aggregate_agent_chunks(all_chunks)
-            span.log(output=aggregated, metrics=extract_streaming_metrics(aggregated, start))
+            span.log(
+                output=aggregated,
+                metrics=extract_streaming_metrics(aggregated, start),
+                metadata=_session_metadata(run_response),
+            )
         except GeneratorExit:
             should_unset = False
             raise
