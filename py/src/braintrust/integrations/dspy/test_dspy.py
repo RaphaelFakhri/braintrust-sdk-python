@@ -3,6 +3,7 @@ Tests for DSPy integration with Braintrust.
 """
 
 import inspect
+import os
 
 import dspy
 import pytest
@@ -33,7 +34,7 @@ def test_dspy_callback(memory_logger):
     assert not memory_logger.pop()
 
     # Configure DSPy with Braintrust callback
-    lm = dspy.LM(MODEL, **LM_KWARGS)
+    lm = dspy.LM(MODEL, cache=False, **LM_KWARGS)
     dspy.configure(lm=lm, callbacks=[BraintrustDSpyCallback()])
 
     # Use ChainOfThought for a more interesting test
@@ -61,6 +62,12 @@ def test_dspy_callback(memory_logger):
     assert lm_span["metadata"]["provider"] == "openai"
     assert "input" in lm_span
     assert "output" in lm_span
+    # The latest cassette contains a real OpenAI usage payload. DSPy 2.6's
+    # recorded response predates usage being included.
+    if os.environ.get("BRAINTRUST_TEST_PACKAGE_VERSION") == "latest":
+        assert lm_span["metrics"]["prompt_tokens"] == 170
+        assert lm_span["metrics"]["completion_tokens"] == 53
+        assert lm_span["metrics"]["tokens"] == 223
 
     format_span = spans_by_name["dspy.adapter.format"]
     assert format_span["span_attributes"]["type"] == "task"

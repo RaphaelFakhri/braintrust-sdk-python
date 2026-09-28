@@ -68,8 +68,8 @@ class BraintrustDSpyCallback(BaseCallback):
         ```
 
     Advanced Example with LiteLLM Patching:
-        For additional detailed token metrics from LiteLLM's wrapper, patch before importing DSPy
-        and disable DSPy's disk cache:
+        To capture additional provider-level spans from LiteLLM, patch before importing DSPy and
+        disable DSPy's disk cache:
 
         ```python
         from braintrust.integrations.litellm import patch_litellm
@@ -95,8 +95,8 @@ class BraintrustDSpyCallback(BaseCallback):
     - Tool calls
     - Evaluation runs
 
-    For detailed token usage and cost metrics, use LiteLLM patching (see Advanced Example above).
-    The patched LiteLLM wrapper will create additional "Completion" spans with comprehensive metrics.
+    Token usage metrics are read from the DSPy LM's history. LiteLLM patching (see Advanced Example
+    above) can additionally create "Completion" spans with provider-level details.
 
     Spans are automatically nested based on the execution hierarchy.
     """
@@ -108,6 +108,7 @@ class BraintrustDSpyCallback(BaseCallback):
         super().__init__()
         # Map call_id to span objects for proper nesting
         self._spans: dict[str, Any] = {}
+        self._lm_instances: dict[str, Any] = {}
 
     def on_lm_start(
         self,
@@ -141,12 +142,14 @@ class BraintrustDSpyCallback(BaseCallback):
         )
         span.set_current()
         self._spans[call_id] = span
+        self._lm_instances[call_id] = instance
 
     def _end_span(
         self,
         call_id: str,
         outputs: Any | None,
         exception: Exception | None = None,
+        metrics: dict[str, int] | None = None,
     ):
         """Pop span by call_id, log outputs/exception, and end it."""
         span = self._spans.pop(call_id, None)
@@ -159,6 +162,8 @@ class BraintrustDSpyCallback(BaseCallback):
                 log_data["error"] = exception
             if outputs is not None:
                 log_data["output"] = outputs
+            if metrics:
+                log_data["metrics"] = metrics
 
             if log_data:
                 span.log(**log_data)
@@ -179,7 +184,25 @@ class BraintrustDSpyCallback(BaseCallback):
             outputs: Output from the LM, or None if there was an exception
             exception: Exception raised during execution, if any
         """
-        self._end_span(call_id, outputs, exception)
+        instance = self._lm_instances.pop(call_id, None)
+        metrics: dict[str, int] = {}
+        try:
+            history = getattr(instance, "history", None)
+            usage = history[-1].get("usage") if history else None
+            if isinstance(usage, dict):
+                for source, target in (
+                    ("prompt_tokens", "prompt_tokens"),
+                    ("completion_tokens", "completion_tokens"),
+                    ("total_tokens", "tokens"),
+                ):
+                    value = usage.get(source)
+                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                        metrics[target] = value
+        except Exception:
+            # Usage extraction is best-effort and must not affect the DSPy call.
+            pass
+
+        self._end_span(call_id, outputs, exception, metrics or None)
 
     def on_module_start(
         self,
