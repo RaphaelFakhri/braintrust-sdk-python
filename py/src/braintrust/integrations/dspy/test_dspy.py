@@ -4,6 +4,7 @@ Tests for DSPy integration with Braintrust.
 
 import inspect
 import os
+from types import SimpleNamespace
 
 import dspy
 import pytest
@@ -92,6 +93,54 @@ def test_dspy_callback(memory_logger):
     assert format_span["span_parents"][0] in span_ids
     assert lm_span["span_parents"][0] in span_ids
     assert parse_span["span_parents"][0] in span_ids
+
+
+def test_dspy_callback_ignores_usage_from_previous_lm_call(memory_logger):
+    """A failed call must not inherit usage from an older history entry."""
+    instance = SimpleNamespace(
+        model=MODEL,
+        history=[
+            {
+                "prompt": "previous request",
+                "outputs": ["previous response"],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 4, "total_tokens": 24},
+            }
+        ],
+    )
+    callback = BraintrustDSpyCallback()
+    callback.on_lm_start("failed-call", instance, {"prompt": "new request"})
+    callback.on_lm_end("failed-call", None, RuntimeError("provider failed"))
+
+    span = next(span for span in memory_logger.pop() if span["span_attributes"]["name"] == "dspy.lm")
+    assert not {"prompt_tokens", "completion_tokens", "tokens"} & span.get("metrics", {}).keys()
+
+
+def test_dspy_callback_correlates_concurrent_lm_usage(memory_logger):
+    """Concurrent calls on one LM must read their own new history entries."""
+    instance = SimpleNamespace(model=MODEL, history=[])
+    callback = BraintrustDSpyCallback()
+    callback.on_lm_start("call-a", instance, {"prompt": "request A"})
+    callback.on_lm_start("call-b", instance, {"prompt": "request B"})
+
+    entry_a = {
+        "prompt": "request A",
+        "outputs": ["response A"],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+    }
+    entry_b = {
+        "prompt": "request B",
+        "outputs": ["response B"],
+        "usage": {"prompt_tokens": 30, "completion_tokens": 5, "total_tokens": 35},
+    }
+    # Both provider calls can append history before either end callback runs.
+    instance.history.extend([entry_a, entry_b])
+    callback.on_lm_end("call-a", entry_a["outputs"])
+    callback.on_lm_end("call-b", entry_b["outputs"])
+
+    spans = [span for span in memory_logger.pop() if span["span_attributes"]["name"] == "dspy.lm"]
+    spans_by_prompt = {span["input"]["prompt"]: span for span in spans}
+    assert spans_by_prompt["request A"]["metrics"]["tokens"] == 12
+    assert spans_by_prompt["request B"]["metrics"]["tokens"] == 35
 
 
 def test_dspy_adapter_callbacks(memory_logger):

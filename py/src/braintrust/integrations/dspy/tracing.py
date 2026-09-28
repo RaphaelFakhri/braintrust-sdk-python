@@ -108,7 +108,7 @@ class BraintrustDSpyCallback(BaseCallback):
         super().__init__()
         # Map call_id to span objects for proper nesting
         self._spans: dict[str, Any] = {}
-        self._lm_instances: dict[str, Any] = {}
+        self._lm_calls: dict[str, tuple[Any, dict[str, Any], Any | None]] = {}
 
     def on_lm_start(
         self,
@@ -142,7 +142,12 @@ class BraintrustDSpyCallback(BaseCallback):
         )
         span.set_current()
         self._spans[call_id] = span
-        self._lm_instances[call_id] = instance
+        try:
+            history = getattr(instance, "history", None)
+            last_history_entry = history[-1] if isinstance(history, list) and history else None
+        except Exception:
+            last_history_entry = None
+        self._lm_calls[call_id] = (instance, dict(inputs), last_history_entry)
 
     def _end_span(
         self,
@@ -184,20 +189,39 @@ class BraintrustDSpyCallback(BaseCallback):
             outputs: Output from the LM, or None if there was an exception
             exception: Exception raised during execution, if any
         """
-        instance = self._lm_instances.pop(call_id, None)
+        call = self._lm_calls.pop(call_id, None)
         metrics: dict[str, int] = {}
         try:
-            history = getattr(instance, "history", None)
-            usage = history[-1].get("usage") if history else None
-            if isinstance(usage, dict):
-                for source, target in (
-                    ("prompt_tokens", "prompt_tokens"),
-                    ("completion_tokens", "completion_tokens"),
-                    ("total_tokens", "tokens"),
-                ):
-                    value = usage.get(source)
-                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-                        metrics[target] = value
+            if call is not None and outputs is not None:
+                instance, inputs, last_history_entry = call
+                history = getattr(instance, "history", None)
+                if isinstance(history, list):
+                    if last_history_entry is None:
+                        new_entries = history
+                    else:
+                        marker_index = next(
+                            (index for index, entry in enumerate(history) if entry is last_history_entry), None
+                        )
+                        new_entries = history[marker_index + 1 :] if marker_index is not None else []
+
+                    matching_entries = [
+                        entry
+                        for entry in new_entries
+                        if isinstance(entry, dict)
+                        and entry.get("prompt") == inputs.get("prompt")
+                        and entry.get("messages") == inputs.get("messages")
+                        and entry.get("outputs") == outputs
+                    ]
+                    usage = matching_entries[0].get("usage") if len(matching_entries) == 1 else None
+                    if isinstance(usage, dict):
+                        for source, target in (
+                            ("prompt_tokens", "prompt_tokens"),
+                            ("completion_tokens", "completion_tokens"),
+                            ("total_tokens", "tokens"),
+                        ):
+                            value = usage.get(source)
+                            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                                metrics[target] = value
         except Exception:
             # Usage extraction is best-effort and must not affect the DSPy call.
             pass
