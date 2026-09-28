@@ -1400,6 +1400,10 @@ def _extract_response_metrics(
         if hasattr(usage, "input_audio_tokens") and usage.input_audio_tokens is not None:
             metrics["prompt_audio_tokens"] = float(usage.input_audio_tokens)
 
+        audio_seconds = getattr(usage, "audio_seconds", None)
+        if audio_seconds is not None:
+            metrics["audio_seconds"] = float(audio_seconds)
+
         if hasattr(usage, "output_audio_tokens") and usage.output_audio_tokens is not None:
             metrics["completion_audio_tokens"] = float(usage.output_audio_tokens)
 
