@@ -186,11 +186,10 @@ def test_audio_seconds_is_recorded_as_metadata():
     from pydantic_ai.messages import ModelResponse, TextPart
     from pydantic_ai.usage import RequestUsage
 
-    supports_audio_seconds = hasattr(RequestUsage(), "audio_seconds")
+    usage = RequestUsage(input_tokens=10, input_audio_tokens=7)
+    supports_audio_seconds = hasattr(usage, "audio_seconds")
     if supports_audio_seconds:
-        usage = RequestUsage(input_tokens=10, input_audio_tokens=7, audio_seconds=2.5)
-    else:
-        usage = RequestUsage(input_tokens=10, input_audio_tokens=7)
+        setattr(usage, "audio_seconds", 2.5)
 
     response = ModelResponse(
         parts=[TextPart(content="spoken response")],
