@@ -204,14 +204,18 @@ class BraintrustDSpyCallback(BaseCallback):
                         )
                         new_entries = history[marker_index + 1 :] if marker_index is not None else []
 
-                    matching_entries = [
+                    input_matches = [
                         entry
                         for entry in new_entries
                         if isinstance(entry, dict)
                         and entry.get("prompt") == inputs.get("prompt")
                         and entry.get("messages") == inputs.get("messages")
-                        and entry.get("outputs") == outputs
                     ]
+                    # DSPy stores the same outputs object it returns to on_lm_end. Identity
+                    # disambiguates concurrent calls with equal input and output values.
+                    matching_entries = [entry for entry in input_matches if entry.get("outputs") is outputs]
+                    if not matching_entries:
+                        matching_entries = [entry for entry in input_matches if entry.get("outputs") == outputs]
                     usage = matching_entries[0].get("usage") if len(matching_entries) == 1 else None
                     if isinstance(usage, dict):
                         for source, target in (

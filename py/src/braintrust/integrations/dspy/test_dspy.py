@@ -119,28 +119,28 @@ def test_dspy_callback_correlates_concurrent_lm_usage(memory_logger):
     """Concurrent calls on one LM must read their own new history entries."""
     instance = SimpleNamespace(model=MODEL, history=[])
     callback = BraintrustDSpyCallback()
-    callback.on_lm_start("call-a", instance, {"prompt": "request A"})
-    callback.on_lm_start("call-b", instance, {"prompt": "request B"})
+    callback.on_lm_start("call-a", instance, {"prompt": "same request"})
+    callback.on_lm_start("call-b", instance, {"prompt": "same request"})
 
+    outputs_a = ["same response"]
+    outputs_b = ["same response"]
     entry_a = {
-        "prompt": "request A",
-        "outputs": ["response A"],
+        "prompt": "same request",
+        "outputs": outputs_a,
         "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
     }
     entry_b = {
-        "prompt": "request B",
-        "outputs": ["response B"],
+        "prompt": "same request",
+        "outputs": outputs_b,
         "usage": {"prompt_tokens": 30, "completion_tokens": 5, "total_tokens": 35},
     }
     # Both provider calls can append history before either end callback runs.
     instance.history.extend([entry_a, entry_b])
-    callback.on_lm_end("call-a", entry_a["outputs"])
-    callback.on_lm_end("call-b", entry_b["outputs"])
+    callback.on_lm_end("call-a", outputs_a)
+    callback.on_lm_end("call-b", outputs_b)
 
     spans = [span for span in memory_logger.pop() if span["span_attributes"]["name"] == "dspy.lm"]
-    spans_by_prompt = {span["input"]["prompt"]: span for span in spans}
-    assert spans_by_prompt["request A"]["metrics"]["tokens"] == 12
-    assert spans_by_prompt["request B"]["metrics"]["tokens"] == 35
+    assert [span["metrics"]["tokens"] for span in spans] == [12, 35]
 
 
 def test_dspy_adapter_callbacks(memory_logger):
