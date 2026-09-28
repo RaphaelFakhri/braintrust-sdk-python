@@ -104,6 +104,20 @@ def _pipeline_metadata(args: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     return clean_nones({"agent_names": agent_names})
 
 
+def _team_pipeline_metadata(instance: Any) -> dict[str, Any]:
+    leader = getattr(instance, "leader", None)
+    members = getattr(instance, "members", None)
+    member_names = None
+    if isinstance(members, dict):
+        member_names = [member.agent.name for member in members.values() if getattr(member, "agent", None)]
+    return clean_nones(
+        {
+            "leader": getattr(leader, "name", None),
+            "member_names": member_names,
+        }
+    )
+
+
 def _extract_metrics(*candidates: Any) -> dict[str, float] | None:
     for candidate in candidates:
         usage = _field_value(candidate, "usage")
@@ -244,6 +258,7 @@ def _deferred_stream_trace(
     stack: contextlib.ExitStack,
     log_fn: Any,
     on_first_chunk: Any = None,
+    on_error: Any = None,
 ) -> Any:
     """Wrap an async iterator so the span stays open until the stream is consumed.
 
@@ -257,18 +272,52 @@ def _deferred_stream_trace(
         with deferred:
             last_chunk = None
             first_seen = False
-            async with aclosing(result) as agen:
-                async for chunk in agen:
-                    if not first_seen:
-                        first_seen = True
-                        if on_first_chunk is not None:
-                            on_first_chunk()
-                    last_chunk = chunk
-                    yield chunk
-            if last_chunk is not None:
-                log_fn(span, last_chunk)
+            try:
+                async with aclosing(result) as agen:
+                    async for chunk in agen:
+                        if not first_seen:
+                            first_seen = True
+                            if on_first_chunk is not None:
+                                on_first_chunk()
+                        last_chunk = chunk
+                        yield chunk
+                if last_chunk is not None:
+                    log_fn(span, last_chunk)
+            except Exception as exc:
+                if on_error is not None:
+                    on_error(span, exc)
+                raise
 
     return _trace()
+
+
+def _team_pipeline_reply_stream_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: dict[str, Any]) -> Any:
+    """Trace a TeamPipeline reply for the lifetime of its event stream."""
+    with contextlib.ExitStack() as stack:
+        span = stack.enter_context(
+            start_span(
+                name="TeamPipeline.reply_stream",
+                type=SpanTypeAttribute.TASK,
+                input=_args_kwargs_input(args, kwargs),
+                metadata=_team_pipeline_metadata(instance),
+            )
+        )
+        try:
+            result = wrapped(*args, **kwargs)
+            if _is_async_iterator(result):
+                return _deferred_stream_trace(
+                    result,
+                    span,
+                    stack,
+                    lambda s, event: s.log(output=event),
+                    on_error=lambda s, exc: s.log(error=exc),
+                )
+
+            span.log(output=result)
+            return result
+        except Exception as exc:
+            span.log(error=exc)
+            raise
 
 
 async def _toolkit_call_tool_function_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: dict[str, Any]) -> Any:

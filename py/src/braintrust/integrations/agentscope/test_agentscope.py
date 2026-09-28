@@ -311,6 +311,46 @@ async def test_agentscope_v2_toolkit_call_tool_creates_tool_span(memory_logger):
     assert tool_span["input"]["tool_name"] == "answer"
 
 
+@pytest.mark.skipif(not IS_AGENTSCOPE_V2, reason="AgentScope 2.x TeamPipeline API")
+@pytest.mark.vcr
+@pytest.mark.asyncio
+async def test_agentscope_team_pipeline_reply_stream_creates_parent_span(memory_logger):
+    from agentscope.pipeline import TeamMember, TeamPipeline
+
+    assert not memory_logger.pop()
+
+    pipeline = TeamPipeline(
+        leader=_make_agent(
+            "Leader",
+            "Delegate the task to the most suitable team member, then summarize their reply.",
+        ),
+        members=[
+            TeamMember(
+                agent=_make_agent("Researcher", "Answer factual questions concisely."),
+                description="Answers factual questions.",
+            ),
+        ],
+    )
+    events = [
+        event
+        async for event in pipeline.reply_stream(
+            _make_user_msg("Ask the researcher to explain why recorded tests are useful.")
+        )
+    ]
+
+    assert events
+
+    spans = memory_logger.pop()
+    pipeline_span = next(span for span in spans if span["span_attributes"]["name"] == "TeamPipeline.reply_stream")
+    llm_spans = [span for span in spans if _span_type(span) == SpanTypeAttribute.LLM]
+
+    assert _span_type(pipeline_span) == "task"
+    assert pipeline_span["context"]["span_origin"]["instrumentation"]["name"] == "agentscope-auto"
+    assert pipeline_span["output"]
+    assert llm_spans
+    assert all(pipeline_span["span_id"] in span["span_parents"] for span in llm_spans)
+
+
 def test_setup_agentscope_is_idempotent():
     """Repeat setup calls must not double-wrap patched targets."""
     from agentscope.model import OpenAIChatModel
