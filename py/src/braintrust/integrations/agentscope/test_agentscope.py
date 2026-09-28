@@ -312,6 +312,23 @@ async def test_agentscope_v2_toolkit_call_tool_creates_tool_span(memory_logger):
 
 
 @pytest.mark.skipif(not IS_AGENTSCOPE_V2, reason="AgentScope 2.x TeamPipeline API")
+@pytest.mark.asyncio
+async def test_agentscope_unstarted_team_pipeline_reply_stream_does_not_open_span(memory_logger):
+    from agentscope.pipeline import TeamPipeline
+
+    pipeline = TeamPipeline(leader=_make_agent("Leader", "Delegate tasks."), members=[])
+
+    with logger.start_span(name="caller") as parent:
+        stream = pipeline.reply_stream(_make_user_msg("hello"))
+        assert logger.current_span() is parent
+        await stream.aclose()
+        assert logger.current_span() is parent
+
+    spans = memory_logger.pop()
+    assert [span["span_attributes"]["name"] for span in spans] == ["caller"]
+
+
+@pytest.mark.skipif(not IS_AGENTSCOPE_V2, reason="AgentScope 2.x TeamPipeline API")
 @pytest.mark.vcr
 @pytest.mark.asyncio
 async def test_agentscope_team_pipeline_reply_stream_creates_parent_span(memory_logger):

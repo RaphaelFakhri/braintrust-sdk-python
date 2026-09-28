@@ -293,31 +293,27 @@ def _deferred_stream_trace(
 
 def _team_pipeline_reply_stream_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: dict[str, Any]) -> Any:
     """Trace a TeamPipeline reply for the lifetime of its event stream."""
-    with contextlib.ExitStack() as stack:
-        span = stack.enter_context(
-            start_span(
-                name="TeamPipeline.reply_stream",
-                type=SpanTypeAttribute.TASK,
-                input=_args_kwargs_input(args, kwargs),
-                metadata=_team_pipeline_metadata(instance),
-            )
-        )
-        try:
-            result = wrapped(*args, **kwargs)
-            if _is_async_iterator(result):
-                return _deferred_stream_trace(
-                    result,
-                    span,
-                    stack,
-                    lambda s, event: s.log(output=event),
-                    on_error=lambda s, exc: s.log(error=exc),
-                )
 
-            span.log(output=result)
-            return result
-        except Exception as exc:
-            span.log(error=exc)
-            raise
+    async def _trace():
+        with start_span(
+            name="TeamPipeline.reply_stream",
+            type=SpanTypeAttribute.TASK,
+            input=_args_kwargs_input(args, kwargs),
+            metadata=_team_pipeline_metadata(instance),
+        ) as span:
+            try:
+                last_event = None
+                async with aclosing(wrapped(*args, **kwargs)) as stream:
+                    async for event in stream:
+                        last_event = event
+                        yield event
+                if last_event is not None:
+                    span.log(output=last_event)
+            except Exception as exc:
+                span.log(error=exc)
+                raise
+
+    return _trace()
 
 
 async def _toolkit_call_tool_function_wrapper(wrapped: Any, instance: Any, args: Any, kwargs: dict[str, Any]) -> Any:
