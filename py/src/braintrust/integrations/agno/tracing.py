@@ -315,9 +315,20 @@ AGNO_METRICS_MAP = {
 
 
 def _session_metadata(source: Any) -> dict[str, str]:
-    """Read the session ID without serializing a run response or event."""
-    session_id = source.get("session_id") if isinstance(source, dict) else getattr(source, "session_id", None)
-    return {"session_id": session_id} if isinstance(session_id, str) and session_id else {}
+    """Read session metadata without serializing a run response or event."""
+    if isinstance(source, dict):
+        session_id = source.get("session_id")
+        cancellation_stage = source.get("cancellation_stage")
+    else:
+        session_id = getattr(source, "session_id", None)
+        cancellation_stage = getattr(source, "cancellation_stage", None)
+    metadata: dict[str, str] = {}
+    if isinstance(session_id, str) and session_id:
+        metadata["session_id"] = session_id
+    cancellation_stage = getattr(cancellation_stage, "value", cancellation_stage)
+    if isinstance(cancellation_stage, str) and cancellation_stage:
+        metadata["cancellation_stage"] = cancellation_stage
+    return metadata
 
 
 def extract_metadata(instance: Any, component: str) -> dict[str, Any]:
