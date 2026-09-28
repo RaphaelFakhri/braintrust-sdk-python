@@ -419,15 +419,22 @@ async def test_query_helper_keeps_options_untouched_and_logs_aggregate_task_usag
         pytest.skip("The 0.1.10 query() transport lifecycle is incompatible with the client cassette")
     assert not memory_logger.pop()
     prompt = "Say hello in one short sentence."
+    supports_verbatim_prompts = _sdk_version_at_least("0.2.158")
 
     hooks = {"UserPromptSubmit": [claude_agent_sdk.HookMatcher(hooks=[_concise_user_prompt_hook])]}
-    options = claude_agent_sdk.ClaudeAgentOptions(
-        model=TEST_MODEL,
-        permission_mode="bypassPermissions",
-        hooks=hooks,
-    )
+    option_values: dict[str, Any] = {
+        "model": TEST_MODEL,
+        "permission_mode": "bypassPermissions",
+        "hooks": hooks,
+    }
+    if supports_verbatim_prompts:
+        option_values["verbatim_prompts"] = True
+    options = claude_agent_sdk.ClaudeAgentOptions(**option_values)
+    cassette_name = "test_user_prompt_submit_hook_creates_function_span"
+    if supports_verbatim_prompts:
+        cassette_name = "test_query_helper_verbatim_prompts"
     transport = make_cassette_transport(
-        cassette_name="test_user_prompt_submit_hook_creates_function_span",
+        cassette_name=cassette_name,
         prompt="",
         options=options,
     )
@@ -447,6 +454,8 @@ async def test_query_helper_keeps_options_untouched_and_logs_aggregate_task_usag
 
     spans = memory_logger.pop()
     task_span = find_span_by_name(find_spans_by_type(spans, SpanTypeAttribute.TASK), "Claude Agent")
+    if supports_verbatim_prompts:
+        assert task_span["metadata"]["verbatim_prompts"] is True
     llm_spans = find_spans_by_type(spans, SpanTypeAttribute.LLM)
     assert len(llm_spans) == 1
     assert not {
