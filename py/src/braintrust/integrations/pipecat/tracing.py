@@ -456,9 +456,13 @@ class BraintrustPipecatObserver(BaseObserver):
         self._tts_audio_metadata.pop(context_id, None)
 
     def _capture_metrics(self, frame: Any, processor: Any) -> None:
+        processor_name = _processor_name(processor)
         for metric in getattr(frame, "data", []) or []:
             metric_type = type(metric).__name__
             if metric_type == "LLMUsageMetricsData":
+                metric_processor = getattr(metric, "processor", None)
+                if processor_name is not None and metric_processor is not None and metric_processor != processor_name:
+                    continue
                 self._llm_metrics.update(_llm_usage_metrics(getattr(metric, "value", None)))
                 self._llm_metadata.update(_metadata_from_metric(metric))
             elif metric_type == "TTFBMetricsData" and self._llm_span is not None:

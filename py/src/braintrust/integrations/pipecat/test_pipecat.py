@@ -6,6 +6,7 @@ import inspect
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from braintrust import SpanCustomizer, logger, set_span_customizers
@@ -56,6 +57,33 @@ def _single_span(logs, name):
     matches = _spans_named(logs, name)
     assert len(matches) == 1, (name, matches)
     return matches[0]
+
+
+def test_pipecat_observer_filters_metrics_from_other_processors():
+    LLMTokenUsage = _import("pipecat.metrics.metrics.LLMTokenUsage")
+    LLMUsageMetricsData = _import("pipecat.metrics.metrics.LLMUsageMetricsData")
+    MetricsFrame = _import("pipecat.frames.frames.MetricsFrame")
+
+    observer = BraintrustPipecatObserver()
+    processor = SimpleNamespace(name="OpenAILLMService#1")
+    frame = MetricsFrame(
+        data=[
+            LLMUsageMetricsData(
+                processor=processor.name,
+                model="gpt-4o-mini",
+                value=LLMTokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            ),
+            LLMUsageMetricsData(
+                processor="JevClassifier#1",
+                model="gpt-4o-mini",
+                value=LLMTokenUsage(prompt_tokens=100, completion_tokens=20, total_tokens=120),
+            ),
+        ]
+    )
+
+    observer._capture_metrics(frame, processor)
+
+    assert observer._llm_metrics == {"prompt_tokens": 10, "completion_tokens": 5, "tokens": 15}
 
 
 @pytest.mark.asyncio
