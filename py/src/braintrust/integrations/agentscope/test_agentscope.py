@@ -348,24 +348,37 @@ async def test_agentscope_team_pipeline_reply_stream_creates_parent_span(memory_
             ),
         ],
     )
-    events = [
-        event
-        async for event in pipeline.reply_stream(
-            _make_user_msg("Ask the researcher to explain why recorded tests are useful.")
-        )
-    ]
+    with logger.start_span(name="caller") as caller_span:
+        stream = pipeline.reply_stream(_make_user_msg("Ask the researcher to explain why recorded tests are useful."))
+        first_event = await stream.__anext__()
+        assert logger.current_span() is caller_span
+        with logger.start_span(name="after-first-event"):
+            pass
+        events = [first_event]
+        async for event in stream:
+            events.append(event)
+        assert logger.current_span() is caller_span
 
     assert events
 
     spans = memory_logger.pop()
     pipeline_span = next(span for span in spans if span["span_attributes"]["name"] == "TeamPipeline.reply_stream")
-    llm_spans = [span for span in spans if _span_type(span) == SpanTypeAttribute.LLM]
+    llm_spans = [
+        span
+        for span in spans
+        if span["span_attributes"].get("type") is not None and _span_type(span) == SpanTypeAttribute.LLM
+    ]
 
     assert _span_type(pipeline_span) == "task"
+    assert pipeline_span["span_parents"] == [caller_span.span_id]
     assert pipeline_span["context"]["span_origin"]["instrumentation"]["name"] == "agentscope-auto"
     assert pipeline_span["output"]
     assert llm_spans
-    assert all(pipeline_span["span_id"] in span["span_parents"] for span in llm_spans)
+    assert all(pipeline_span["span_id"] in span["span_parents"] for span in llm_spans), [
+        (span["span_attributes"]["name"], span["span_parents"]) for span in llm_spans
+    ]
+    after_event_span = next(span for span in spans if span["span_attributes"]["name"] == "after-first-event")
+    assert after_event_span["span_parents"] == [caller_span.span_id]
 
 
 def test_setup_agentscope_is_idempotent():

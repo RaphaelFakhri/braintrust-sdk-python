@@ -1,10 +1,11 @@
 """AgentScope-specific span creation and stream aggregation."""
 
+import asyncio
 import contextlib
 import inspect
 import time
 from contextlib import aclosing
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from typing import Any
 
 from braintrust.integrations.utils import (
@@ -295,23 +296,44 @@ def _team_pipeline_reply_stream_wrapper(wrapped: Any, instance: Any, args: Any, 
     """Trace a TeamPipeline reply for the lifetime of its event stream."""
 
     async def _trace():
-        with start_span(
-            name="TeamPipeline.reply_stream",
-            type=SpanTypeAttribute.TASK,
-            input=_args_kwargs_input(args, kwargs),
-            metadata=_team_pipeline_metadata(instance),
-        ) as span:
+        stream_context = copy_context()
+        span = stream_context.run(
+            lambda: start_span(
+                name="TeamPipeline.reply_stream",
+                type=SpanTypeAttribute.TASK,
+                input=_args_kwargs_input(args, kwargs),
+                metadata=_team_pipeline_metadata(instance),
+            )
+        )
+        stream = None
+        try:
+            last_event = None
+            stream = wrapped(*args, **kwargs)
+            while True:
+                stream_context.run(span.set_current)
+                try:
+                    event = await asyncio.create_task(stream.__anext__(), context=stream_context)
+                except StopAsyncIteration:
+                    break
+                finally:
+                    stream_context.run(span.unset_current)
+                last_event = event
+                yield event
+            if last_event is not None:
+                span.log(output=last_event)
+        except Exception as exc:
+            span.log(error=exc)
+            raise
+        finally:
             try:
-                last_event = None
-                async with aclosing(wrapped(*args, **kwargs)) as stream:
-                    async for event in stream:
-                        last_event = event
-                        yield event
-                if last_event is not None:
-                    span.log(output=last_event)
-            except Exception as exc:
-                span.log(error=exc)
-                raise
+                if stream is not None:
+                    stream_context.run(span.set_current)
+                    try:
+                        await asyncio.create_task(stream.aclose(), context=stream_context)
+                    finally:
+                        stream_context.run(span.unset_current)
+            finally:
+                span.end()
 
     return _trace()
 
