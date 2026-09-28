@@ -16,6 +16,7 @@ from braintrust.integrations.pipecat import (
     wrap_pipeline_worker,
 )
 from braintrust.integrations.test_utils import verify_autoinstrument_script
+from braintrust.integrations.versioning import detect_module_version, version_satisfies
 from braintrust.logger import Attachment
 from braintrust.test_helpers import init_test_logger
 
@@ -56,6 +57,18 @@ def _single_span(logs, name):
     matches = _spans_named(logs, name)
     assert len(matches) == 1, (name, matches)
     return matches[0]
+
+
+def test_observer_bounds_frame_id_tracking_by_pipecat_version():
+    pipecat = importlib.import_module("pipecat")
+    version = detect_module_version(pipecat, ("pipecat",))
+    observer = BraintrustPipecatObserver()
+
+    if version_satisfies(version, ">=1.12.0"):
+        assert observer.observe_every_push is False
+        assert not hasattr(observer, "_seen_frame_ids")
+    else:
+        assert observer._seen_frame_ids == set()
 
 
 @pytest.mark.asyncio
