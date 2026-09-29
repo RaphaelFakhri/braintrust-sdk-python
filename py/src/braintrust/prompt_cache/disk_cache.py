@@ -128,10 +128,15 @@ class DiskCache(Generic[T]):
                 os.makedirs(self._dir, exist_ok=True)
             file_path = self._get_entry_path(key)
 
+            # Serialize before opening the file: opening it for writing truncates any
+            # existing entry, so a serialization error would otherwise leave an empty
+            # file behind and destroy the previously cached value.
+            if self._serializer is not None:
+                value = self._serializer(value)
+            payload = json.dumps(value).encode("utf-8")
+
             with gzip.open(file_path, "wb") as f:
-                if self._serializer is not None:
-                    value = self._serializer(value)
-                f.write(json.dumps(value).encode("utf-8"))
+                f.write(payload)
 
             self._evict_if_full()
         except Exception as e:

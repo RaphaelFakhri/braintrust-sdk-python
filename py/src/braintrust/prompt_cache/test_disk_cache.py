@@ -24,6 +24,21 @@ class TestDiskCache(unittest.TestCase):
         except Exception:
             pass
 
+    def test_failed_serialization_keeps_existing_entry(self):
+        self.cache.set("key", {"a": 1})
+
+        # A value that json cannot serialize must not clobber the stored entry.
+        self.cache.set("key", {"a": object()})
+
+        assert self.cache.get("key") == {"a": 1}
+
+    def test_failed_serialization_does_not_create_entry(self):
+        self.cache.set("key", {"a": object()})
+
+        with self.assertRaises(KeyError):
+            self.cache.get("key")
+        assert os.listdir(self.cache_dir) == []
+
     def test_keys_with_invalid_paths(self):
         data = {"1": "2"}
         weird_keys = [
