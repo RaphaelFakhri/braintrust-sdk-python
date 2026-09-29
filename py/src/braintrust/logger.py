@@ -626,27 +626,23 @@ class BraintrustState:
         self.reset_login_info()
 
         self._prompt_cache = PromptCache(
-            memory_cache=LRUCache(
-                max_size=int(os.environ.get("BRAINTRUST_PROMPT_CACHE_MEMORY_MAX_SIZE", str(1 << 10)))
-            ),
+            memory_cache=LRUCache(max_size=BraintrustEnv.PROMPT_CACHE_MEMORY_MAX_SIZE.get(1 << 10)),
             disk_cache=DiskCache(
                 cache_dir=os.environ.get(
                     "BRAINTRUST_PROMPT_CACHE_DIR", f"{os.environ.get('HOME')}/.braintrust/prompt_cache"
                 ),
-                max_size=int(os.environ.get("BRAINTRUST_PROMPT_CACHE_DISK_MAX_SIZE", str(1 << 20))),
+                max_size=BraintrustEnv.PROMPT_CACHE_DISK_MAX_SIZE.get(1 << 20),
                 serializer=lambda x: x.as_dict(),
                 deserializer=PromptSchema.from_dict_deep,
             ),
         )
         self._parameters_cache = ParametersCache(
-            memory_cache=LRUCache(
-                max_size=int(os.environ.get("BRAINTRUST_PARAMETERS_CACHE_MEMORY_MAX_SIZE", str(1 << 10)))
-            ),
+            memory_cache=LRUCache(max_size=BraintrustEnv.PARAMETERS_CACHE_MEMORY_MAX_SIZE.get(1 << 10)),
             disk_cache=DiskCache(
                 cache_dir=os.environ.get(
                     "BRAINTRUST_PARAMETERS_CACHE_DIR", f"{os.environ.get('HOME')}/.braintrust/parameters_cache"
                 ),
-                max_size=int(os.environ.get("BRAINTRUST_PARAMETERS_CACHE_DISK_MAX_SIZE", str(1 << 20))),
+                max_size=BraintrustEnv.PARAMETERS_CACHE_DISK_MAX_SIZE.get(1 << 20),
                 serializer=lambda x: x.as_dict(),
                 deserializer=RemoteEvalParameters.from_dict_deep,
             ),
@@ -2951,7 +2947,7 @@ def traced(*span_args: Any, **span_kwargs: Any) -> Callable[[F], F]:
                     _try_log_input(span, f_sig, f_args, f_kwargs)
 
                 # Get max items from environment or default
-                max_items = int(os.environ.get("BRAINTRUST_MAX_GENERATOR_ITEMS", "1000"))
+                max_items = BraintrustEnv.MAX_GENERATOR_ITEMS.get(1000)
 
                 if trace_io and max_items != 0:
                     # Collect output up to limit
@@ -2992,7 +2988,7 @@ def traced(*span_args: Any, **span_kwargs: Any) -> Callable[[F], F]:
                     _try_log_input(span, f_sig, f_args, f_kwargs)
 
                 # Get max items from environment or default
-                max_items = int(os.environ.get("BRAINTRUST_MAX_GENERATOR_ITEMS", "1000"))
+                max_items = BraintrustEnv.MAX_GENERATOR_ITEMS.get(1000)
 
                 if trace_io and max_items != 0:
                     # Collect output up to limit

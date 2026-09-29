@@ -2838,6 +2838,47 @@ async def test_traced_async_generator_truncation(with_memory_logger, caplog):
             os.environ["BRAINTRUST_MAX_GENERATOR_ITEMS"] = original
 
 
+@pytest.mark.parametrize("value", ["", "  ", "not-a-number"])
+def test_traced_generators_ignore_invalid_max_items_env(with_memory_logger, monkeypatch, value):
+    """An empty or non-numeric BRAINTRUST_MAX_GENERATOR_ITEMS falls back to the default instead of raising."""
+    init_test_logger(__name__)
+    monkeypatch.setenv("BRAINTRUST_MAX_GENERATOR_ITEMS", value)
+
+    @logger.traced
+    def sync_generator():
+        yield from range(3)
+
+    @logger.traced
+    async def async_generator():
+        for i in range(3):
+            yield i
+
+    async def collect():
+        return [v async for v in async_generator()]
+
+    assert list(sync_generator()) == [0, 1, 2]
+    assert asyncio.run(collect()) == [0, 1, 2]
+
+    logs = with_memory_logger.pop()
+    assert [log.get("output") for log in logs] == [[0, 1, 2], [0, 1, 2]]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "BRAINTRUST_PROMPT_CACHE_MEMORY_MAX_SIZE",
+        "BRAINTRUST_PROMPT_CACHE_DISK_MAX_SIZE",
+        "BRAINTRUST_PARAMETERS_CACHE_MEMORY_MAX_SIZE",
+        "BRAINTRUST_PARAMETERS_CACHE_DISK_MAX_SIZE",
+    ],
+)
+@pytest.mark.parametrize("value", ["", "not-a-number"])
+def test_state_ignores_invalid_cache_size_env(monkeypatch, name, value):
+    """An empty or non-numeric cache size variable keeps the default instead of failing state creation."""
+    monkeypatch.setenv(name, value)
+    logger.BraintrustState()
+
+
 def test_traced_sync_generator_zero_limit_drops_output(with_memory_logger):
     """Test sync generator with limit=0 drops all output but still yields values."""
     init_test_logger(__name__)
