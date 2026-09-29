@@ -63,3 +63,28 @@ def test_repo_info_returns_none_when_git_cannot_be_resolved(monkeypatch: pytest.
     assert gitutil._current_repo() is None
     assert gitutil.repo_info() is None
     assert list(gitutil.get_past_n_ancestors()) == []
+
+
+def test_get_base_branch_warning_is_formattable_when_remote_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    """A failing `git remote show` must log a warning that formats cleanly and fall back to main."""
+
+    def fake_git_output(args, cwd=None):
+        if args == ["remote"]:
+            return "origin"
+        if args[0] == "for-each-ref":
+            return "trunk"
+        raise subprocess.CalledProcessError(128, ["git", *args])
+
+    monkeypatch.setattr(gitutil, "_current_repo", lambda: "/repo")
+    monkeypatch.setattr(gitutil, "_git_output", fake_git_output)
+    gitutil._get_base_branch.cache_clear()
+    try:
+        with caplog.at_level("WARNING", logger="braintrust.gitutil"):
+            assert gitutil._get_base_branch() == ("origin", "main")
+    finally:
+        gitutil._get_base_branch.cache_clear()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("Could not find base branch for remote origin" in m for m in messages)
