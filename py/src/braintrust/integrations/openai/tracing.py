@@ -1470,6 +1470,12 @@ class AgentSessionWrapper:
         return traced_stream
 
 
+# A Responses API stream ends with one of these events. Streams that hit
+# `max_output_tokens` or a content filter end with `response.incomplete`, and
+# all three carry the final `response` object with output and usage.
+_TERMINAL_RESPONSE_EVENT_TYPES = frozenset({"response.completed", "response.incomplete", "response.failed"})
+
+
 class ResponseWrapper:
     def __init__(
         self,
@@ -1652,7 +1658,7 @@ class ResponseWrapper:
             if (
                 not usage
                 and hasattr(result, "type")
-                and result.type == "response.completed"
+                and result.type in _TERMINAL_RESPONSE_EVENT_TYPES
                 and hasattr(result, "response")
             ):
                 response_dict = _try_to_dict(result.response)
@@ -1682,7 +1688,7 @@ class ResponseWrapper:
                 output.append(item_data)
                 continue
 
-            if result.type == "response.completed":
+            if result.type in _TERMINAL_RESPONSE_EVENT_TYPES:
                 if hasattr(result, "response") and hasattr(result.response, "output"):
                     if response_dict is None:
                         response_dict = _try_to_dict(result.response)

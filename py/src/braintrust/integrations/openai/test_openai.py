@@ -6,6 +6,7 @@ import struct
 import tempfile
 import time
 import zlib
+from types import SimpleNamespace
 
 import openai
 import pytest
@@ -14,6 +15,7 @@ from braintrust.integrations.openai import OpenAIIntegration
 from braintrust.integrations.openai.tracing import (
     RAW_RESPONSE_HEADER,
     ChatCompletionWrapper,
+    ResponseWrapper,
     _materialize_logged_file_input,
     _process_attachments_in_chat_output,
 )
@@ -2994,3 +2996,21 @@ class TestZAICompatibleOpenAI:
             filename="generated_audio.wav",
         )
         assert not memory_logger.pop()
+
+
+@pytest.mark.parametrize("event_type", ["response.completed", "response.incomplete", "response.failed"])
+def test_responses_stream_terminal_event_provides_output_and_metrics(event_type):
+    output_item = SimpleNamespace(id="msg_1", type="message", role="assistant", status="incomplete", content=[])
+    usage = SimpleNamespace(input_tokens=10, output_tokens=4, total_tokens=14)
+    all_results = [
+        SimpleNamespace(type="response.created", response=SimpleNamespace(id="resp_1", output=[], usage=None)),
+        SimpleNamespace(
+            type=event_type,
+            response=SimpleNamespace(id="resp_1", output=[output_item], usage=usage),
+        ),
+    ]
+
+    result = ResponseWrapper(None, None)._postprocess_streaming_results(all_results)
+
+    assert result["output"] == [output_item]
+    assert result["metrics"] == {"prompt_tokens": 10, "completion_tokens": 4, "tokens": 14}
